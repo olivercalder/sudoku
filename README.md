@@ -33,8 +33,8 @@ Assuming that taking set intersections are fast, and that the number of valid co
 ### Counting the number of valid sudoku grids up to isomorphism
 
 Once we are able to generate solved sudoku grids, we might ask ourselves how many unique sudoku grids exist.
-Furthermore, we could consider how many sudoku grids are unique up to rotation and reflection, which cuts down the total number substantially.
-Finally, we could consider sudoku grids to be unique up to digit, where switching every occurence of one number with every occurrence of another number (or rotating number assignments, etc.) results in an identical grid.
+Furthermore, we could consider how many sudoku grids are unique up to translation, rotation, and reflection, which cuts down the total number substantially.
+Finally, we could consider sudoku grids to be unique up to digit, where swapping every occurence of one number with every occurrence of another number (or rotating number assignments, etc.) results in a grid which is considered to be equivalent.
 
 We could have some fun with combinatorics and abstract algebra to compute this directly, and/or we could find a way of generating only unique sudoku grids under these constraints.
 
@@ -45,7 +45,7 @@ Once we have solved sudoku grids, we can prepare them for a human solver by remo
 ### Working with groups and equivalence classes of sudoku puzzles given by partial solutions
 
 There is more than one way to generate a solvable partial grid for a given solved grid.
-This is certainly true if we allow partial grids with redundant information (such as the latter of a grid with N entries missing and the same grid with only N-1 entries missing).
+This is certainly true if we allow partial grids with redundant information (such as the latter of a grid with $N$ entries missing and the same grid with only $N-1$ entries missing).
 Even if we restrict that we only allow partial grids where removing one more entry makes the grid no longer uniquely solvable, there ought to be more than one way to generate a partial grid for a given solved grid.
 TODO: Prove this.
 
@@ -59,12 +59,103 @@ Using one byte per digit would result in 9 bytes per row, which if packed into a
 We could do the same using a nibble (4 bits) per entry, thus resulting in 36 bits total.
 This would involve some math to extract a single digit out of a row, but would get us to 8-byte alignment.
 
-But! If we know the first 8 entries in a row, we can easily deduce the 9th.
+But! If we know the first 8 entries in a row, we can easily deduce the 9th (assuming all entries are non-empty).
 Thus, we can use nibbles for each entry and thus use a total of 4 bits per row, or we can use 8 bytes with one for each of the first 8 digits and save ourselves a bit of conversion.
 
 If we use nibbles, then printing the 32-bit integer in hex will produce the digits in the entries of the row (aside from the final entry, which we must deduce).
-If we use bytes, then we can print the value of each byte directly and add on the extra.
+If we use bytes, then we can print the value of each byte directly and add on the extra entry.
+
+However, if we wish to work with partially-completed sudoku grids, we also need to allow for empty entries. If we wish to use a single nibble for each entry, we don't have any bits leftover which could be used in their entirety to hint at the content of the omitted entry.
+Three approaches immediately come to mind:
+
+- We could try to be clever and use some sort of Hamming code-inspired construction to encode the ninth digit.
+  - Perhaps we leverage the fact that the values `0xA` through `0xF` (`10`-`15`) are unused.
+  - If a value is above 9, subtract 6, and that indicates a 1 in the corresponding bit for the ninth entry.
+    - That is, |1|2|3|4|5|6|7|8|9| would be encoded as |1|2|3|4|B|6|7|E|.
+  - This doesn't work, as we would have no way of having a 1 bit if the base value is less than 4.
+  - However, there can be at most four entries with a value less than 4 (thus at least four entrues $\geq 4$, so this could yet be salvaged... use the last four entries greater than 4 to indicate the bit values for the ninth entry.
+    - That is, |9|7|6|4|3|8|5|1|2| would be encoded as |9|7|6|4|3|E|5|1|.
+  - This approach does involve rather a lot of branching, unless there is some clever jumping (via match statement, perhaps):
+    - Alas, benchmark results show that if-statements outperform matches in this case.
+
+```rust
+fn convert_u32_branch(mut input: u32) -> Vec<u8> {
+    let mut result = Vec::<u8>::with_capacity(9);
+    let mut missing = 0u8;
+    for _ in 0..8 {
+        let e = input as u8 & 0xF;
+        if e >= 10 {
+            result.push(e - 6);
+            missing = (missing << 1) | 1;
+        } else {
+            result.push(e);
+            if e >= 4 {
+                missing <<= 1;
+            }
+        }
+        input >>= 4;
+    }
+    result.push(missing);
+    result
+}
+
+fn convert_u32_match(mut input: u32) -> Vec<u8> {
+    let mut result = Vec::<u8>::with_capacity(9);
+    let mut missing = 0u8;
+    for _ in 0..8 {
+        let e = input as u8 & 0xF;
+        match e {
+            0..=3 => result.push(e),
+            4..=9 => {
+                result.push(e);
+                missing <<= 1;
+            }
+            10..=15 => {
+                result.push(e - 6);
+                missing = (missing << 1) | 1;
+            }
+            _ => {},
+        }
+        input >>= 4;
+    }
+    result.push(missing);
+    result
+}
+```
+
+```
+test bench_convert_u32_branch          ... bench:          10 ns/iter (+/- 0)
+test bench_convert_u32_match           ... bench:          19 ns/iter (+/- 1)
+```
+
+- We could encode the digits in base 10, which requires $\lceil\log_2\left(10^8\right)\rceil = 27$ bits, leaving 5 remaining to encode the missing entry.
+  - However, accessing any entry besides the last one involves dividing the numerical representation of the row by a power of 10, and if possible we would like to avoid division entirely.
+- We could generate every valid sudoku row in order and store them in a list, with all row operations acting on indices into that list.
+  - This requires $$\lceil\log_2\left(\sum_{n=0}^9\binom{9}{n}\frac{9!}{n!}\right)\rceil = \lceil24.0668\rceil = 25$$ bits, which means we can easily represent every possible row (including those with anywhere from 0 to 9 empty entries).
+  - This means rows could be passed around (and stored in successor lists) easily using their index into the array, without need for conversion unless/until we want to modify the row.
+  - If it is a constant-time operation to convert from a `u8`-ified row back to its index (this should be possible with some *math*), this would be good.
+  - Although we must look up rows by index quite frequently, the cache efficiency of the contiguous block of rows should be good.
 
 Storing rows as integers or byte arrays also has the added benefit of keeping things sorted.
 That is, if we start by generating every valid row in sorted order, and each time we work with a list of rows we traverse it in order, then every list of rows will remain sorted.
 This can dramatically speed the time it takes to compute the intersection of sets (assuming those sets are similarly ordered), as we need only traverse each of the sets once.
+
+### Lingering implementation questions
+
+- Do we want to compute successor rows for all possible rows, including those with empty entries?
+- Do we want to combine the implementation of generating solved sudoku grids with the implementation of solving a partially solved grid, or are these fundamentally different tasks?
+
+## Sudoku board design doodles
+
+#### No decoration, just horizontal space
+```
+1 2 3 4 5 6 7 8 9
+2 3 4 5 6 7 8 9 1
+3 4 5 6 7 8 9 1 2
+4 5 6 7 8 9 1 2 3
+5 6 7 8 9 1 2 3 4
+6 7 8 9 1 2 3 4 5
+7 8 9 1 2 3 4 5 6
+8 9 1 2 3 4 5 6 7
+9 1 2 3 4 5 6 7 8
+```
