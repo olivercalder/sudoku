@@ -86,9 +86,9 @@ impl Row {
     /// Gets the number at the given 1-based index into the row.
     pub fn get(&self, index: u8) -> Option<u8> {
         match index {
-            0 | 10.. => None,
             1..9 => Some(self.get_nibble(8 - index)),
             9 => Some((0..8).fold(ROW_SUM, |acc, i| acc - self.get_nibble(i))),
+            _ => None,
         }
     }
 
@@ -139,24 +139,25 @@ impl Row {
         true
     }
 
-    /// Returns a `RowIter` of the elements in the row.
-    pub fn iter(&self) -> RowIter {
-        RowIter::new(self)
+    /// Returns a `row::Iter` of the elements in the row.
+    pub fn iter(&self) -> Iter {
+        Iter::new(self)
     }
 
-    /// Returns a `RowChunk` iterator, which returns chunks of three elements at a time.
-    fn box_chunks(&self) -> RowChunk {
-        RowChunk { iter: self.iter() }
+    /// Returns a `ChunkIter`, which returns chunks of three elements at a time.
+    fn box_chunks(&self) -> ChunkIter {
+        ChunkIter { iter: self.iter() }
     }
 }
 
-pub struct RowIter {
+/// Iterates through the entries in the row.
+pub struct Iter {
     row: Row,
     index: u8,
     acc: u8,
 }
 
-impl RowIter {
+impl Iter {
     fn new(r: &Row) -> Self {
         Self {
             row: *r,
@@ -166,7 +167,7 @@ impl RowIter {
     }
 }
 
-impl Iterator for RowIter {
+impl Iterator for Iter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -183,11 +184,12 @@ impl Iterator for RowIter {
     }
 }
 
-pub struct RowChunk {
-    iter: RowIter,
+/// Iterates through the 3-element entries from the row which appear in the same 3x3 box.
+pub struct ChunkIter {
+    iter: Iter,
 }
 
-impl Iterator for RowChunk {
+impl Iterator for ChunkIter {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Self::Item> {
