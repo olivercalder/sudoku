@@ -13,16 +13,16 @@ impl Row {
     pub fn from_slice(v: &[u8]) -> Row {
         // 9th element is implied by previous element.
         let mut r: u32 = 0;
-        for i in (0..8).rev() {
+        for e in v.iter().take(8) {
             r <<= 4;
-            r |= v[i] as u32 & 0b1111;
+            r |= *e as u32 & 0b1111;
         }
         Row { row: r }
     }
 
     /// Create the first `Row` in lexicographic order: `[1, 2, 3, 4, 5, 6, 7, 8, 9]`.
     pub fn first() -> Row {
-        Row { row: 0x87654321 }
+        Row { row: 0x12345678 }
     }
 
     /// Returns the next valid row following `self`, in lexicographic order, if it exists.
@@ -30,29 +30,37 @@ impl Row {
         // XXX: Very naive and messy approach.
         // TODO: Do better.
 
-        fn reset_from_index(r: u32, index: usize) -> u32 {
-            if index == 8 {
+        // Reset entries to the right of the given bit to be the lexicographic minimum.
+        fn reset_after_bit(r: u32, bit: usize) -> u32 {
+            if bit == 0 {
                 return r;
             }
-            let preserve_mask = 0xffffffff >> ((8 - index) << 2); // this is ass
-            let filler = 0x87654321 << (index << 2);
+            let preserve_mask = 0xffffffff << bit;
+            let filler = 0x12345678 >> (32 - bit);
             (r & preserve_mask) | filler
         }
 
         let mut current = self.row;
-        let mut index_to_advance = 7;
+        let mut bit_to_advance = 0; // abstract index is 7 - (bit_to_advance / 4)
         'outer: loop {
-            current = current + (1 << (index_to_advance << 2));
+            current += 1 << bit_to_advance;
             // Check for overflow
-            if (current >> (index_to_advance << 2)) & 0xf > 9 {
-                if index_to_advance == 0 {
-                    // We're done, since row must be 0x23456789 and we just tried to advance the 9.
+            if (current >> bit_to_advance) & 0xf > 9 {
+                if bit_to_advance == 28 {
+                    // We're done, since row must have been 0x98765432, then we advanced the 8 and
+                    // it became 0x99123456, then we checked for duplicates, saw duplicate 9 at bit
+                    // 24, so advanced bit_to_advance to 28 and reset the rest, leaving current as
+                    // 0xa1234567
+                    debug_assert_eq!(
+                        format!("{:x}", current as i64),
+                        format!("{:x}", 0xa1234567_i64)
+                    );
                     return None;
                 }
-                // Overflowed, so reset to initial filler from current index, then move to the
-                // previous index and try to advance from there.
-                current = reset_from_index(current, index_to_advance);
-                index_to_advance -= 1;
+                // Overflowed, so advance the bit index and reset to initial filler to the right of
+                // there.
+                bit_to_advance += 4;
+                current = reset_after_bit(current, bit_to_advance);
                 continue 'outer;
             }
             // Check for duplicates, and find the index of the duplicate, if it exists
@@ -62,10 +70,11 @@ impl Row {
                 if used & (1 << v) != 0 {
                     // Already used v, so set i to be index_to_advance, and fill in the rest with
                     // filler.
-                    assert!(i < 8); // should be no way to have conflict at index 8, since index 8
-                                    // is computed relative to indices 0..=7, and we
-                    index_to_advance = i as usize;
-                    current = reset_from_index(current, i + 1);
+                    debug_assert!(i < 8); // should be no way to have conflict at index 8, since
+                                          // index 8 is computed relative to indices 0..=7.
+                    let bit = 28 - (i << 2); // convert from abstract index to u32 bit index.
+                    current = reset_after_bit(current, bit);
+                    bit_to_advance = bit;
                     continue 'outer;
                 }
                 used |= 1 << v;
@@ -74,17 +83,23 @@ impl Row {
         }
     }
 
-    /// Gets the number at the given 1-based index in the row.
+    /// Gets the number at the given 1-based index into the row.
     pub fn get(&self, index: u8) -> Option<u8> {
         match index {
             0 | 10.. => None,
-            1..9 => Some(self.get_unchecked(index - 1)),
-            9 => Some((0..8).fold(ROW_SUM, |acc, i| acc - self.get_unchecked(i))),
+            1..9 => Some(self.get_nibble(8 - index)),
+            9 => Some((0..8).fold(ROW_SUM, |acc, i| acc - self.get_nibble(i))),
         }
     }
 
-    /// Gets the number at the given 0-based index in the row, without bounds checks.
-    fn get_unchecked(&self, index: u8) -> u8 {
+    /// Gets the number at the given 1-based index between 1 and 8 (inclusive) into the row,
+    /// without bounds checking.
+    pub fn get_unchecked(&self, index: u8) -> u8 {
+        self.get_nibble(8 - index)
+    }
+
+    /// Gets the number at the given nibble index into the row, without bounds checks.
+    fn get_nibble(&self, index: u8) -> u8 {
         ((self.row >> (index << 2)) & 0b1111) as u8
     }
 
@@ -126,11 +141,7 @@ impl Row {
 
     /// Returns a `RowIter` of the elements in the row.
     pub fn iter(&self) -> RowIter {
-        RowIter {
-            row: *self,
-            index: 0,
-            acc: 0,
-        }
+        RowIter::new(self)
     }
 
     /// Returns a `RowChunk` iterator, which returns chunks of three elements at a time.
@@ -145,21 +156,30 @@ pub struct RowIter {
     acc: u8,
 }
 
+impl RowIter {
+    fn new(r: &Row) -> Self {
+        Self {
+            row: *r,
+            index: 0,
+            acc: 0,
+        }
+    }
+}
+
 impl Iterator for RowIter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index > 8 {
-            return None;
-        }
-        if self.index == 8 {
-            self.index += 1;
-            return Some(ROW_SUM - self.acc);
-        }
-        let current: u8 = self.row.get_unchecked(self.index);
-        self.acc += current;
         self.index += 1;
-        Some(current)
+        match self.index {
+            1..=8 => {
+                let current: u8 = self.row.get_unchecked(self.index);
+                self.acc += current;
+                Some(current)
+            }
+            9 => Some(ROW_SUM - self.acc),
+            _ => None,
+        }
     }
 }
 
@@ -181,7 +201,7 @@ impl Iterator for RowChunk {
 
 /// Returns the list of all sudoku rows in lexicographic order.
 pub fn build_rows() -> Vec<Row> {
-    let mut rows: Vec<Row> = Vec::with_capacity((1..=9).product());
+    let mut rows: Vec<Row> = Vec::with_capacity((2..=9).product());
     let mut current = Some(Row::first());
     while let Some(r) = current {
         rows.push(r);
