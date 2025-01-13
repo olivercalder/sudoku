@@ -145,7 +145,7 @@ impl Row {
     }
 
     /// Returns a `ChunkIter`, which returns chunks of three elements at a time.
-    fn box_chunks(&self) -> ChunkIter {
+    pub fn box_chunks(&self) -> ChunkIter {
         ChunkIter { iter: self.iter() }
     }
 }
