@@ -1,3 +1,4 @@
+mod grid;
 mod row;
 
 fn main() {
@@ -7,4 +8,8 @@ fn main() {
     let (col_count, box_count) = row::successors_per_row();
     println!("column successors per row: {}", col_count);
     println!("box successors per row: {}", box_count);
+
+    println!("computing first grid...");
+
+    println!("{}", grid::Grid::first().format());
 }
