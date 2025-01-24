@@ -120,12 +120,10 @@ impl Row {
     /// Returns true if `other` is a column successor to `self`. That is, for all identical positions
     /// in `self` and `other`, the numbers in those positions differ.
     pub fn col_successor(&self, other: &Self) -> bool {
-        let mut xor = self.row ^ other.row;
-        for _ in 0..8 {
-            if xor & 0b1111 == 0 {
+        for (s, o) in self.iter().zip(other.iter()) {
+            if s == o {
                 return false;
             }
-            xor >>= 4;
         }
         true
     }
