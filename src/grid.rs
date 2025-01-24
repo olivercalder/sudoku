@@ -8,29 +8,62 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Return the lexicographically first valid `Grid`.
     pub fn first() -> Self {
-        let mut initial = [Row::first(); 8];
-        for i in 1..8 {
+        let mut initial = Self {
+            rows: [Row::first(); 8],
+        };
+        initial.advance_and_validate_from(1); // we know there's a valid initial grid
+        initial
+    }
+
+    /// Advance the row in `self` at start_index to the next valid row, then advance the following
+    /// row until it is valid, etc., until all rows
+    fn advance_and_validate_from(&mut self, start_index: usize) -> bool {
+        for i in start_index + 1..8 {
+            self.rows[i] = Row::first()
+        }
+        for i in start_index..8 {
             // Set row i to be the first successor to previous rows
-            'outer: loop {
-                initial[i] = initial[i].next().unwrap();
+            'retry: loop {
+                let Some(next) = self.rows[i].next() else {
+                    return false;
+                };
+                self.rows[i] = next;
                 for j in 0..i {
                     // Ensure it's a column successor
-                    if !initial[i].col_successor(&initial[j]) {
-                        continue 'outer;
+                    if !self.rows[i].col_successor(&self.rows[j]) {
+                        continue 'retry;
                     }
                 }
                 for j in (i - (i % 3))..i {
                     // Ensure it's a box successor
-                    if !initial[i].box_successor(&initial[j]) {
-                        continue 'outer;
+                    if !self.rows[i].box_successor(&self.rows[j]) {
+                        continue 'retry;
                     }
                 }
                 // It's a column successor and a box successor
-                break;
+                break 'retry;
             }
         }
-        Self { rows: initial }
+        true
+    }
+
+    /// Advances `self` to the next valid arrangement, in lexicographic order. Returns `true` if
+    /// the new arrangement is valid. Returns `false` if the previous arrangement was the final
+    /// valid one, and in this case, resets the grid to the result of `Grid::first()`.
+    pub fn next(&mut self) -> bool {
+        for start_index in (1..8).rev() {
+            // Try to advance from start_index, starting as late as possible, moving earlier if
+            // necessary.
+            if self.advance_and_validate_from(start_index) {
+                return true;
+            }
+        }
+        // No way to generate a new grid while keeping the initial row [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let initial = Grid::first();
+        self.rows = initial.rows;
+        false
     }
 
     pub fn rows(&self) -> Iter {

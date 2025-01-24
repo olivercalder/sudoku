@@ -9,7 +9,15 @@ fn main() {
     println!("column successors per row: {}", col_count);
     println!("box successors per row: {}", box_count);
 
-    println!("computing first grid...");
+    println!("computing grids...");
+    let mut grid = grid::Grid::first();
+    println!("{}", grid.format());
+    let mut count = 1;
 
-    println!("{}", grid::Grid::first().format());
+    while grid.next() {
+        count += 1;
+        println!("{}", grid.format());
+    }
+
+    println!("total grids: {}", count);
 }
