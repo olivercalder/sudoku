@@ -2,7 +2,7 @@ const ROW_WIDTH: u8 = 9;
 
 const ROW_SUM: u8 = 9 * (9 + 1) / 2;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Row {
     row: u32,
 }
@@ -20,13 +20,27 @@ impl Row {
         Row { row: r }
     }
 
+    /// Creates a `Row` from the given u32, where the first 8 entries in the row are packed into
+    /// the 8 nibbles of the u32, from left to right.
+    ///
+    /// That is, `0x12345678` results in a row with entries `[1, 2, 3, 4, 5, 6, 7, 8, 9]`.
+    pub fn from_u32(u: u32) -> Row {
+        Row { row: u }
+    }
+
+    /// Returns the underlying u32 behind this implementation of a row, where the first 8 entries
+    /// in the row are packed into the 8 nibbles of the u32.
+    pub fn as_u32(&self) -> u32 {
+        self.row
+    }
+
     /// Create the first `Row` in lexicographic order: `[1, 2, 3, 4, 5, 6, 7, 8, 9]`.
     pub fn first() -> Row {
         Row { row: 0x12345678 }
     }
 
     /// Returns the next valid row following `self`, in lexicographic order, if it exists.
-    fn next(&self) -> Option<Row> {
+    pub fn next(&self) -> Option<Row> {
         // XXX: Very naive and messy approach.
         // TODO: Do better.
 
@@ -150,6 +164,12 @@ impl Row {
     }
 }
 
+impl std::fmt::Debug for Row {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.iter().collect::<Vec<u8>>())
+    }
+}
+
 /// Iterates through the entries in the row.
 pub struct Iter {
     row: Row,
@@ -265,6 +285,52 @@ mod tests {
             r.iter().collect::<Vec<u8>>(),
             vec![3, 6, 7, 2, 9, 4, 8, 1, 5]
         );
+    }
+
+    #[test]
+    fn test_from_u32() {
+        let r = Row::from_u32(0x12345678);
+        assert_eq!(
+            r.iter().collect::<Vec<u8>>(),
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9]
+        );
+
+        let r = Row::from_u32(0x98765432);
+        assert_eq!(
+            r.iter().collect::<Vec<u8>>(),
+            vec![9, 8, 7, 6, 5, 4, 3, 2, 1]
+        );
+
+        let r = Row::from_u32(0x36729481);
+        assert_eq!(
+            r.iter().collect::<Vec<u8>>(),
+            vec![3, 6, 7, 2, 9, 4, 8, 1, 5]
+        );
+    }
+
+    #[test]
+    fn test_as_u32() {
+        let all_rows = build_rows();
+        let l = (1..=9).product();
+        assert_eq!(all_rows.len(), l);
+        let u32s: Vec<u32> = all_rows.iter().map(|r| r.as_u32()).collect();
+        assert_eq!(u32s[0], 0x12345678);
+        assert_eq!(u32s[1], 0x12345679);
+        assert_eq!(u32s[2], 0x12345687);
+        assert_eq!(u32s[3], 0x12345689);
+        assert_eq!(u32s[4], 0x12345697);
+        assert_eq!(u32s[5], 0x12345698);
+        assert_eq!(u32s[6], 0x12345768);
+        assert_eq!(u32s[7], 0x12345769);
+        assert_eq!(u32s[8], 0x12345786);
+        assert_eq!(u32s[9], 0x12345789);
+        assert_eq!(u32s[10], 0x12345796);
+        assert_eq!(u32s[11], 0x12345798);
+
+        assert_eq!(u32s[l - 1], 0x98765432);
+        assert_eq!(u32s[l - 2], 0x98765431);
+        assert_eq!(u32s[l - 3], 0x98765423);
+        assert_eq!(u32s[l - 4], 0x98765421);
     }
 
     #[test]
