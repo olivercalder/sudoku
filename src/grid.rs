@@ -1,7 +1,7 @@
 use crate::row::Row;
 
-const sum_of_row: u64 = 9 * (9 + 1) / 2;
-const sum_of_rows: u64 = 12884901885; // (0..8).map(|x| sum_of_row << (x << 2)).sum::<u64>();
+const SUM_OF_ROW: u64 = 9 * (9 + 1) / 2;
+const SUM_OF_ROWS: u64 = 12884901885; // (0..8).map(|x| SUM_OF_ROW << (x << 2)).sum::<u64>();
 
 pub struct Grid {
     rows: [Row; 8], // ninth row is implied
@@ -49,25 +49,25 @@ impl Grid {
     /// Returns the ninth row of the grid.
     fn ninth_row(&self) -> Row {
         Row::from_u32(
-            (sum_of_rows - self.rows.iter().map(|r| r.as_u32() as u64).sum::<u64>()) as u32,
+            (SUM_OF_ROWS - self.rows.iter().map(|r| r.as_u32() as u64).sum::<u64>()) as u32,
         )
     }
 
     /// Returns a pretty-printed multiline string displaying the grid.
     pub fn format(&self) -> String {
-        let mut buf = String::from(grid_template.clone());
+        let mut buf = String::from(GRID_TEMPLATE);
         unsafe {
             let bytes = buf.as_bytes_mut();
-            x_indices
+            X_INDICES
                 .iter()
-                .zip(self.rows().map(|r| r.iter()).flatten())
+                .zip(self.rows().flat_map(|r| r.iter()))
                 .for_each(|(i, x)| bytes[*i] = 0x30 + x);
         }
         buf.to_string()
     }
 }
 
-const grid_template: &str = "
+const GRID_TEMPLATE: &str = "
 ┏━━━┯━━━┯━━━┳━━━┯━━━┯━━━┳━━━┯━━━┯━━━┓
 ┃ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x ┃
 ┠───┼───┼───╂───┼───┼───╂───┼───┼───┨
@@ -89,7 +89,7 @@ const grid_template: &str = "
 ┗━━━┷━━━┷━━━┻━━━┷━━━┷━━━┻━━━┷━━━┷━━━┛
 ";
 
-static x_indices: [usize; 81] = [
+static X_INDICES: [usize; 81] = [
     117, 123, 129, 135, 141, 147, 153, 159, 165, 287, 293, 299, 305, 311, 317, 323, 329, 335, 457,
     463, 469, 475, 481, 487, 493, 499, 505, 627, 633, 639, 645, 651, 657, 663, 669, 675, 797, 803,
     809, 815, 821, 827, 833, 839, 845, 967, 973, 979, 985, 991, 997, 1003, 1009, 1015, 1137, 1143,
@@ -107,7 +107,7 @@ pub struct Iter<'a> {
 impl<'a> Iter<'a> {
     fn from(grid: &'a Grid) -> Self {
         Self {
-            grid: grid,
+            grid,
             index: 0,
             acc: 0,
         }
@@ -126,7 +126,7 @@ impl Iterator for Iter<'_> {
         }
         if self.index == 8 {
             self.index += 1;
-            return Some(Row::from_u32((sum_of_rows - self.acc) as u32));
+            return Some(Row::from_u32((SUM_OF_ROWS - self.acc) as u32));
         }
         None
     }
@@ -135,7 +135,7 @@ impl Iterator for Iter<'_> {
 #[cfg(test)]
 mod tests {
     use crate::grid::Grid;
-    use crate::grid::{grid_template, x_indices};
+    use crate::grid::{GRID_TEMPLATE, X_INDICES};
     use crate::row::Row;
 
     #[test]
@@ -178,11 +178,11 @@ mod tests {
     }
 
     #[test]
-    fn test_x_indices() {
-        let real_indices: Vec<usize> = grid_template
+    fn test_X_INDICES() {
+        let real_indices: Vec<usize> = GRID_TEMPLATE
             .match_indices('x')
             .map(|(i, _x)| i)
             .collect::<Vec<usize>>();
-        assert_eq!(&x_indices[..], &real_indices);
+        assert_eq!(&X_INDICES[..], &real_indices);
     }
 }
