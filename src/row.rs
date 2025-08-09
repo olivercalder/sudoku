@@ -41,6 +41,12 @@ impl Row {
 
     /// Returns the next valid row following `self`, in lexicographic order, if it exists.
     pub fn next(&self) -> Option<Row> {
+        self.next_from_index(7)
+    }
+
+    /// Returns the next valid row following `self` where the number at the given 0-based `index`
+    /// has changed and all numbers before `index` are unchanged.
+    pub fn next_from_index(&self, index: usize) -> Option<Row> {
         // XXX: Very naive and messy approach.
         // TODO: Do better.
 
@@ -55,7 +61,9 @@ impl Row {
         }
 
         let mut current = self.row;
-        let mut bit_to_advance = 0; // abstract index is 7 - (bit_to_advance / 4)
+        debug_assert!(index <= 7);
+        let mut bit_to_advance = 28 - (index << 2); // abstract index = 7 - (bit_to_advance / 4)
+
         'outer: loop {
             current += 1 << bit_to_advance;
             // Check for overflow
@@ -117,38 +125,39 @@ impl Row {
         ((self.row >> (index << 2)) & 0b1111) as u8
     }
 
-    /// Returns true if `other` is a column successor to `self`. That is, for all identical positions
-    /// in `self` and `other`, the numbers in those positions differ.
-    pub fn col_successor(&self, other: &Self) -> bool {
-        for (s, o) in self.iter().zip(other.iter()) {
+    /// Returns `None` if `other` is a column successor to `self`. That is, for all identical
+    /// positions in `self` and `other`, the numbers in those positions differ. If `self` and
+    /// `other` are not column successors, then returns the first position at which `self` and
+    /// `other` conflict.
+    pub fn col_successor_conflicts(&self, other: &Self) -> Option<usize> {
+        for (i, (s, o)) in self.iter().zip(other.iter()).enumerate() {
             if s == o {
-                return false;
+                return Some(i);
             }
         }
-        true
+        None
     }
 
-    /// Returns true if `other` is a box successor to `self`. That is, ensure that no entry would
+    /// Returns `None` if `other` is a box successor to `self`. That is, ensure that no entry would
     /// occur in the same 3x3 box in both `self` and `other`.
     ///
     /// Let A, B, C, X, Y, and Z be 3-element sequences, such that `self` is ABC and `other` is
     /// XYZ. Then treating all sequences as sets, A and X are disjoint, B and Y are disjoint, and C
     /// and Z are disjoint.
-    pub fn box_successor(&self, other: &Self) -> bool {
+    ///
+    /// If `self` and `other` are not box successors, then returns the first position at which `self`
+    /// conflicts with `other`, assuming `other` is fixed and `self` is being adjusted until it
+    /// does not conflict.
+    pub fn box_successor_conflicts(&self, other: &Self) -> Option<usize> {
         let boxes = self.box_chunks().zip(other.box_chunks());
-        for (s_box, o_box) in boxes {
-            for s in &s_box {
+        for (i, (s_box, o_box)) in boxes.enumerate() {
+            for (j, s) in s_box.iter().enumerate() {
                 if o_box.contains(s) {
-                    return false;
-                }
-            }
-            for o in &o_box {
-                if s_box.contains(o) {
-                    return false;
+                    return Some(3 * i + j);
                 }
             }
         }
-        true
+        None
     }
 
     /// Returns a `row::Iter` of the elements in the row.
@@ -237,10 +246,10 @@ pub fn successors_per_row() -> (usize, usize) {
     let mut col_count: usize = 0;
     let mut box_count: usize = 0;
     while let Some(r) = current {
-        if first.col_successor(&r) {
+        if first.col_successor_conflicts(&r) == None {
             col_count += 1;
         }
-        if first.box_successor(&r) {
+        if first.box_successor_conflicts(&r) == None {
             box_count += 1;
         }
         current = r.next();
@@ -359,55 +368,55 @@ mod tests {
     }
 
     #[test]
-    fn test_col_successor() {
+    fn test_col_successor_conflicts() {
         let r1 = Row::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let r2 = Row::from_slice(&[2, 3, 4, 5, 6, 7, 8, 9, 1]);
         let r3 = Row::from_slice(&[2, 3, 5, 4, 6, 7, 8, 9, 1]);
         let r4 = Row::from_slice(&[4, 5, 6, 7, 8, 9, 1, 2, 3]);
 
-        assert_eq!(r1.col_successor(&r2), true);
-        assert_eq!(r2.col_successor(&r1), true);
+        assert_eq!(r1.col_successor_conflicts(&r2), None);
+        assert_eq!(r2.col_successor_conflicts(&r1), None);
 
-        assert_eq!(r1.col_successor(&r3), false);
-        assert_eq!(r3.col_successor(&r1), false);
+        assert_eq!(r1.col_successor_conflicts(&r3), Some(3));
+        assert_eq!(r3.col_successor_conflicts(&r1), Some(3));
 
-        assert_eq!(r1.col_successor(&r4), true);
-        assert_eq!(r4.col_successor(&r1), true);
+        assert_eq!(r1.col_successor_conflicts(&r4), None);
+        assert_eq!(r4.col_successor_conflicts(&r1), None);
 
-        assert_eq!(r2.col_successor(&r3), false);
-        assert_eq!(r3.col_successor(&r2), false);
+        assert_eq!(r2.col_successor_conflicts(&r3), Some(0));
+        assert_eq!(r3.col_successor_conflicts(&r2), Some(0));
 
-        assert_eq!(r2.col_successor(&r4), true);
-        assert_eq!(r4.col_successor(&r2), true);
+        assert_eq!(r2.col_successor_conflicts(&r4), None);
+        assert_eq!(r4.col_successor_conflicts(&r2), None);
 
-        assert_eq!(r3.col_successor(&r4), true);
-        assert_eq!(r4.col_successor(&r3), true);
+        assert_eq!(r3.col_successor_conflicts(&r4), None);
+        assert_eq!(r4.col_successor_conflicts(&r3), None);
     }
 
     #[test]
-    fn test_box_successor() {
+    fn test_box_successor_conflicts() {
         let r1 = Row::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let r2 = Row::from_slice(&[2, 3, 4, 5, 6, 7, 8, 9, 1]);
         let r3 = Row::from_slice(&[2, 3, 5, 4, 6, 7, 8, 9, 1]);
         let r4 = Row::from_slice(&[4, 5, 6, 7, 8, 9, 1, 2, 3]);
 
-        assert_eq!(r1.box_successor(&r2), false);
-        assert_eq!(r2.box_successor(&r1), false);
+        assert_eq!(r1.box_successor_conflicts(&r2), Some(1));
+        assert_eq!(r2.box_successor_conflicts(&r1), Some(0));
 
-        assert_eq!(r1.box_successor(&r3), false);
-        assert_eq!(r3.box_successor(&r1), false);
+        assert_eq!(r1.box_successor_conflicts(&r3), Some(1));
+        assert_eq!(r3.box_successor_conflicts(&r1), Some(0));
 
-        assert_eq!(r1.box_successor(&r4), true);
-        assert_eq!(r4.box_successor(&r1), true);
+        assert_eq!(r1.box_successor_conflicts(&r4), None);
+        assert_eq!(r4.box_successor_conflicts(&r1), None);
 
-        assert_eq!(r2.box_successor(&r3), false);
-        assert_eq!(r3.box_successor(&r2), false);
+        assert_eq!(r2.box_successor_conflicts(&r3), Some(0));
+        assert_eq!(r3.box_successor_conflicts(&r2), Some(0));
 
-        assert_eq!(r2.box_successor(&r4), false);
-        assert_eq!(r4.box_successor(&r2), false);
+        assert_eq!(r2.box_successor_conflicts(&r4), Some(2));
+        assert_eq!(r4.box_successor_conflicts(&r2), Some(0));
 
-        assert_eq!(r3.box_successor(&r4), false);
-        assert_eq!(r4.box_successor(&r3), false);
+        assert_eq!(r3.box_successor_conflicts(&r4), Some(2));
+        assert_eq!(r4.box_successor_conflicts(&r3), Some(1));
     }
 
     #[test]

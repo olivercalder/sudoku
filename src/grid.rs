@@ -17,30 +17,57 @@ impl Grid {
         initial
     }
 
-    /// Advance the row in `self` at start_index to the next valid row, then advance the following
-    /// row until it is valid, etc., until all rows
+    /// Advance the row in `self` at `start_index` to the next valid row, then advance the
+    /// following row until it is valid, etc., until all rows are valid. Returns `true` if
+    /// successful, else `false` if there are no more valid grids to be made while only modifying
+    /// rows starting at `start_index`.
     fn advance_and_validate_from(&mut self, start_index: usize) -> bool {
-        for i in start_index + 1..8 {
-            self.rows[i] = Row::first()
-        }
         for i in start_index..8 {
-            // Set row i to be the first successor to previous rows
-            'retry: loop {
+            // Set row i to be the first successor to previous rows.
+            if i == start_index {
                 let Some(next) = self.rows[i].next() else {
                     return false;
                 };
                 self.rows[i] = next;
+            } else {
+                self.rows[i] = Row::first()
+            }
+            'retry: loop {
                 for j in 0..i {
-                    // Ensure it's a column successor
-                    if !self.rows[i].col_successor(&self.rows[j]) {
-                        continue 'retry;
+                    // Ensure it's a column successor to all previous rows
+                    let Some(conflict_index) = self.rows[i].col_successor_conflicts(&self.rows[j])
+                    else {
+                        break;
+                    };
+                    // It's not a column successor, so advance the number at the index which caused
+                    // the conflict
+                    for num_index in (0..=conflict_index).rev() {
+                        if let Some(next) = self.rows[i].next_from_index(num_index) {
+                            self.rows[i] = next;
+                            continue 'retry;
+                        }
+                        // Didn't succeed, so try advancing the number at the previous index
                     }
+                    // Didn't succeed for any index, so we're out of rows
+                    return false;
                 }
                 for j in (i - (i % 3))..i {
-                    // Ensure it's a box successor
-                    if !self.rows[i].box_successor(&self.rows[j]) {
-                        continue 'retry;
+                    // Ensure it's a box successor to rows in the same box
+                    let Some(conflict_index) = self.rows[i].box_successor_conflicts(&self.rows[j])
+                    else {
+                        break;
+                    };
+                    // It's not a box successor, so advance the number at the index which caused
+                    // the conflict
+                    for num_index in (0..=conflict_index).rev() {
+                        if let Some(next) = self.rows[i].next_from_index(num_index) {
+                            self.rows[i] = next;
+                            continue 'retry;
+                        }
+                        // Didn't succeed, so try advancing the number at the previous index
                     }
+                    // Didn't succeed for any index, so we're out of rows
+                    return false;
                 }
                 // It's a column successor and a box successor
                 break 'retry;
@@ -94,7 +121,7 @@ impl Grid {
             X_INDICES
                 .iter()
                 .zip(self.rows().flat_map(|r| r.iter()))
-                .for_each(|(i, x)| bytes[*i] = 0x30 + x);
+                .for_each(|(i, x)| bytes[*i] = b'0' + x);
         }
         buf.to_string()
     }
