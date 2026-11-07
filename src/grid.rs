@@ -25,20 +25,14 @@ impl Cell {
         NonZero::new((self.0 >> Self::SELECTION_OFFSET) & Self::SELECTION_MASK)
     }
 
-    pub fn available(&self) -> impl Iterator<Item = NonZero<u32>> + use<'_> {
+    pub fn available(&self) -> impl Iterator<Item = NonZero<u32>> {
         // safety: 1 is non-zero
         let one = unsafe { NonZero::new_unchecked(1) };
         self.available_starting_with(one)
     }
 
-    fn available_starting_with(
-        &self,
-        value: NonZero<u32>,
-    ) -> impl Iterator<Item = NonZero<u32>> + use<'_> {
-        (value.get()..=WIDTH_U32)
-            .filter(|x| self.0 & (Self::VALUE_MASK << (x * 2)) == 0)
-            // safety: we're iterating over a range which starts at non-zero, so can't include 0
-            .map(|x| unsafe { NonZero::new_unchecked(x) })
+    fn available_starting_with(&self, value: NonZero<u32>) -> ValueIter {
+        ValueIter::new(self.0, value)
     }
 
     fn select(&mut self, val: NonZero<u32>) {
@@ -123,6 +117,40 @@ impl Cell {
                 format!(" {} {} {} ", chars[6], chars[7], chars[8]),
             ]
         }
+    }
+}
+
+struct ValueIter {
+    values: u32,
+    next_value: NonZero<u32>,
+}
+
+impl ValueIter {
+    fn new(values: u32, starting_with: NonZero<u32>) -> Self {
+        Self {
+            values,
+            next_value: starting_with,
+        }
+    }
+}
+
+impl Iterator for ValueIter {
+    type Item = NonZero<u32>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.next_value.get() <= WIDTH_U32
+            && self.values & (Cell::VALUE_MASK << (self.next_value.get() * 2)) != 0
+        {
+            // XXX: could use unchecked_add since we know next_value <= WIDTH_U32
+            self.next_value = self.next_value.saturating_add(1);
+        }
+        if self.next_value.get() > WIDTH_U32 {
+            return None;
+        }
+        let result = Some(self.next_value);
+        // XXX: could use unchecked_add since we know next_value <= WIDTH_U32
+        self.next_value = self.next_value.saturating_add(1);
+        result
     }
 }
 
@@ -242,10 +270,7 @@ impl Grid {
         let mut starting_value: NonZero<u32> = unsafe { NonZero::new_unchecked(1) };
         loop {
             let index = self.count_selected;
-            for selection in self.cells[index]
-                .available_starting_with(starting_value)
-                .collect::<Vec<NonZero<u32>>>()
-            {
+            for selection in self.cells[index].available_starting_with(starting_value) {
                 if self.make_selection(index, selection).is_err() {
                     continue;
                 }
