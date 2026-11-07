@@ -262,25 +262,23 @@ impl Grid {
     /// making selections in the most constrained cells first, since e.g. completing the first
     /// square has fewer options than filling in the second row, at first.
     pub fn make_next_selection(&mut self) -> Option<(usize, NonZero<u32>)> {
-        if self.count_selected == CELL_COUNT {
-            // made all selections already
-            return None;
-        }
         // safety: 1 is non-zero
         let mut starting_value: NonZero<u32> = unsafe { NonZero::new_unchecked(1) };
         loop {
-            let index = self.count_selected;
-            for selection in self.cells[index].available_starting_with(starting_value) {
-                if self.make_selection(index, selection).is_err() {
-                    continue;
+            if self.count_selected < CELL_COUNT {
+                let index = self.count_selected;
+                for selection in self.cells[index].available_starting_with(starting_value) {
+                    if self.make_selection(index, selection).is_err() {
+                        continue;
+                    }
+                    self.count_selected += 1;
+                    return Some((index, selection));
                 }
-                self.count_selected += 1;
-                return Some((index, selection));
-            }
-            // couldn't make a valid move, so try to undo last move
-            if self.count_selected == 0 {
-                // already had no previous moves, so there are no more valid moves to make
-                return None;
+                // couldn't make a valid move, so try to undo last move
+                if self.count_selected == 0 {
+                    // already had no previous moves, so there are no more valid moves to make
+                    return None;
+                }
             }
             starting_value = self
                 .unmake_selection(self.count_selected - 1)
@@ -656,6 +654,35 @@ mod tests {
         .collect();
         let first_solved: Vec<Option<NonZero<u32>>> =
             Grid::new().solve_next().unwrap().values().collect();
+        for (i, val) in first_solved_expected.iter().enumerate() {
+            assert_eq!(first_solved[i], *val, "index {i} incorrect")
+        }
+    }
+
+    #[test]
+    fn test_second_solved_grid() {
+        let first_solved_expected: Vec<Option<NonZero<u32>>> = vec![
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![4, 5, 6, 7, 8, 9, 1, 2, 3],
+            vec![7, 8, 9, 1, 2, 3, 4, 5, 6],
+            vec![2, 1, 4, 3, 6, 5, 8, 9, 7],
+            vec![3, 6, 5, 8, 9, 7, 2, 1, 4],
+            vec![8, 9, 7, 2, 1, 4, 3, 6, 5],
+            vec![5, 3, 1, 6, 4, 2, 9, 7, 8],
+            vec![6, 4, 8, 9, 7, 1, 5, 3, 2],
+            vec![9, 7, 2, 5, 3, 8, 6, 4, 1],
+        ]
+        .iter()
+        .flatten()
+        .map(|x| Some(NonZero::new(*x).unwrap()))
+        .collect();
+        let first_solved: Vec<Option<NonZero<u32>>> = Grid::new()
+            .solve_next()
+            .unwrap()
+            .solve_next()
+            .unwrap()
+            .values()
+            .collect();
         for (i, val) in first_solved_expected.iter().enumerate() {
             assert_eq!(first_solved[i], *val, "index {i} incorrect")
         }
