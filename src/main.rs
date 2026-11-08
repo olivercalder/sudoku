@@ -13,8 +13,13 @@ fn main() {
 
     println!("solved grids:");
     let mut grid = Grid::new();
+    let mut count: usize = 0;
     while let Some(g) = grid.solve_next() {
-        println!("{}", g);
+        count += 1;
+        if count == 1 || count % 100000 == 0 {
+            println!("{}th solved grid:\n{}", count, g);
+        }
         grid = g
     }
+    println!("total solved grids count: {}", count);
 }
