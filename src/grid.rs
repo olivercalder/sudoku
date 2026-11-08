@@ -154,6 +154,7 @@ impl Iterator for ValueIter {
     }
 }
 
+#[derive(Clone)]
 struct IndexIter(u128);
 
 impl Iterator for IndexIter {
@@ -166,12 +167,47 @@ impl Iterator for IndexIter {
     }
 }
 
+// XXX: it's essential that indices are unique in the output
+/// Return the indices of other cells which are affected by a selection of the cell at the given
+/// index. Do not include the given index in the output, so that the selected cell always appears
+/// to have at least one option remaining even when a selection has been made.
+fn affected_indices(index: usize) -> IndexIter {
+    let mut bitvec: u128 = 0;
+
+    let row_index = index / WIDTH;
+    for i in (row_index * WIDTH)..(row_index * WIDTH + WIDTH) {
+        bitvec |= 1_u128 << i
+    }
+
+    let col_index = index % WIDTH;
+    for i in 0..WIDTH {
+        bitvec |= 1_u128 << (col_index + (WIDTH * i))
+    }
+
+    const BOX_ROW_INDICES: usize = WIDTH * BOX_WIDTH;
+
+    let box_left_col_index = ((index / BOX_WIDTH) * BOX_WIDTH) % WIDTH;
+    let box_top_row_start_index = (index / BOX_ROW_INDICES) * BOX_ROW_INDICES;
+    let box_start_index = box_top_row_start_index + box_left_col_index;
+    for y in 0..BOX_WIDTH {
+        for x in 0..BOX_WIDTH {
+            bitvec |= 1_u128 << (box_start_index + x + (y * WIDTH))
+        }
+    }
+
+    // exclude the index itself
+    bitvec &= !(1_u128 << index);
+
+    IndexIter(bitvec)
+}
+
 /// A Grid holds the full state of the sudoku grid, with each cell either selected or containing
 /// the set of valid potential values the cell could be. The grid also holds the stack of previous
 /// moves.
 pub struct Grid {
     cells: Vec<Cell>,
     count_selected: usize,
+    affected_indices: Vec<IndexIter>,
 }
 
 impl Grid {
@@ -179,42 +215,8 @@ impl Grid {
         Grid {
             cells: vec![Cell::new(); CELL_COUNT],
             count_selected: 0,
+            affected_indices: (0..CELL_COUNT).map(affected_indices).collect(),
         }
-    }
-
-    // XXX: it's essential that indices are unique in the output
-    // TODO: hard-code affected indices for each
-    /// Return the indices of other cells which are affected by a selection of the cell at the
-    /// given index. Do not include the given index in the output, so that the selected cell always
-    /// appears to have at least one option remaining even when a selection has been made.
-    fn affected_indices(index: usize) -> IndexIter {
-        let mut bitvec: u128 = 0;
-
-        let row_index = index / WIDTH;
-        for i in (row_index * WIDTH)..(row_index * WIDTH + WIDTH) {
-            bitvec |= 1_u128 << i
-        }
-
-        let col_index = index % WIDTH;
-        for i in 0..WIDTH {
-            bitvec |= 1_u128 << (col_index + (WIDTH * i))
-        }
-
-        const BOX_ROW_INDICES: usize = WIDTH * BOX_WIDTH;
-
-        let box_left_col_index = ((index / BOX_WIDTH) * BOX_WIDTH) % WIDTH;
-        let box_top_row_start_index = (index / BOX_ROW_INDICES) * BOX_ROW_INDICES;
-        let box_start_index = box_top_row_start_index + box_left_col_index;
-        for y in 0..BOX_WIDTH {
-            for x in 0..BOX_WIDTH {
-                bitvec |= 1_u128 << (box_start_index + x + (y * WIDTH))
-            }
-        }
-
-        // exclude the index itself
-        bitvec &= !(1_u128 << index);
-
-        IndexIter(bitvec)
     }
 
     /// This is a more general-purpose function which allows arbitrary valid selections to be made.
@@ -223,7 +225,7 @@ impl Grid {
     /// cell for which there are no remaining selections available if this selection were made.
     fn make_selection(&mut self, index: usize, value: NonZero<u32>) -> Result<(), usize> {
         self.cells[index].select(value);
-        for i in Self::affected_indices(index) {
+        for i in self.affected_indices[index].clone() {
             if !self.cells[i].handle_affected(value) {
                 self.undo_partial_selection(index, i, value);
                 self.cells[index].deselect();
@@ -234,7 +236,7 @@ impl Grid {
     }
 
     fn undo_partial_selection(&mut self, index: usize, stop_at_index: usize, value: NonZero<u32>) {
-        for i in Self::affected_indices(index) {
+        for i in self.affected_indices[index].clone() {
             if i == stop_at_index {
                 break;
             }
@@ -248,7 +250,7 @@ impl Grid {
     /// generation of sudoku grids.
     fn unmake_selection(&mut self, index: usize) -> Option<NonZero<u32>> {
         let value = self.cells[index].deselect()?;
-        for i in Self::affected_indices(index) {
+        for i in self.affected_indices[index].clone() {
             self.cells[i].unhandle_affected(value)
         }
         Some(value)
