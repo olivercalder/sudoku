@@ -267,6 +267,24 @@ impl Grid {
         loop {
             if self.count_selected < CELL_COUNT {
                 let index = self.count_selected;
+                if index % WIDTH == 0 {
+                    // optimizations:
+                    // - top left cell of each left box must be in ascending order
+                    // - in each left box, leftmost columns must be in ascending order
+                    if index % (WIDTH * BOX_WIDTH) != 0 {
+                        // is start of second or third row in box
+                        if let Some(prev_row_start) = self.cells[index - WIDTH].selection() {
+                            starting_value = starting_value.max(prev_row_start.saturating_add(1));
+                        }
+                    } else if index != 0 {
+                        // is start of first row in non-first box
+                        if let Some(prev_box_start) =
+                            self.cells[index - (WIDTH * BOX_WIDTH)].selection()
+                        {
+                            starting_value = starting_value.max(prev_box_start.saturating_add(1));
+                        }
+                    }
+                }
                 for selection in self.cells[index].available_starting_with(starting_value) {
                     if self.make_selection(index, selection).is_err() {
                         continue;
@@ -275,8 +293,10 @@ impl Grid {
                     return Some((index, selection));
                 }
                 // couldn't make a valid move, so try to undo last move
-                if self.count_selected == 0 {
-                    // already had no previous moves, so there are no more valid moves to make
+                if self.count_selected <= 9 {
+                    // every solved grid is trivially equivalent (via substitution) to a solved
+                    // grid with the first row as the numbers 1-9 in order, so don't bother
+                    // unmaking moves in the first row.
                     return None;
                 }
             }
@@ -661,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_second_solved_grid() {
-        let first_solved_expected: Vec<Option<NonZero<u32>>> = vec![
+        let second_solved_expected: Vec<Option<NonZero<u32>>> = vec![
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
             vec![4, 5, 6, 7, 8, 9, 1, 2, 3],
             vec![7, 8, 9, 1, 2, 3, 4, 5, 6],
@@ -676,15 +696,15 @@ mod tests {
         .flatten()
         .map(|x| Some(NonZero::new(*x).unwrap()))
         .collect();
-        let first_solved: Vec<Option<NonZero<u32>>> = Grid::new()
+        let second_solved: Vec<Option<NonZero<u32>>> = Grid::new()
             .solve_next()
             .unwrap()
             .solve_next()
             .unwrap()
             .values()
             .collect();
-        for (i, val) in first_solved_expected.iter().enumerate() {
-            assert_eq!(first_solved[i], *val, "index {i} incorrect")
+        for (i, val) in second_solved_expected.iter().enumerate() {
+            assert_eq!(second_solved[i], *val, "index {i} incorrect")
         }
     }
 }
