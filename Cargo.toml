@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+# to allow profiling, need --no-rosegment
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-Clink-arg=-Wl,--no-rosegment"]
